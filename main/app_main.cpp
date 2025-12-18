@@ -26,10 +26,10 @@ static const char *TAG = "SERVO_SLAVE";
 #define DUTY_MAX    128   
 
 #define SERVO_PIN_1           14       // Servo 1: GPIO 14 (Metal/Papel)
-#define LEDC_CHANNEL_1        LEDC_CHANNEL_0 
+#define LEDC_CHANNEL_1        LEDC_CHANNEL_1 
 
 #define SERVO_PIN_2           13       // Servo 2: GPIO 13 (Plástico/Cartón)
-#define LEDC_CHANNEL_2        LEDC_CHANNEL_1 
+#define LEDC_CHANNEL_2        LEDC_CHANNEL_2 
 
 // =========================================================
 //                   CONFIGURACIÓN ESP-NOW
@@ -66,9 +66,9 @@ void set_servo_2_angle(int angle) {
 }
 
 void servos_to_initial_position() {
-    set_servo_1_angle(0); 
-    set_servo_2_angle(0); 
-    ESP_LOGI(TAG, "Servos en posición inicial (0 grados)");
+    set_servo_1_angle(90);  
+    set_servo_2_angle(90); 
+    ESP_LOGI(TAG, "Servos en posición inicial (90 grados)");
 }
 
 void ledc_init_servos() {
@@ -109,64 +109,39 @@ void ledc_init_servos() {
     ESP_LOGI(TAG, "Servos inicializados.");
 }
 
-// Lógica de movimiento basada en la clase (MODIFICADA PARA MOVIMIENTO COMPLETO 0-180-0)
+
 static void move_servos_based_on_class(int predicted_class) {
-    // 0: carton, 1: metal, 2: papel, 3: plastico
-    
-    // Tiempo de espera para observar el movimiento de ida (1.0 segundo)
-    const TickType_t MOVE_DELAY = pdMS_TO_TICKS(1000); 
+    // Reducimos el tiempo a 800ms por movimiento
+    const TickType_t MOVE_DELAY = pdMS_TO_TICKS(2000); 
 
-    // Aseguramos que ambos servos estén en reposo antes de mover
-    servos_to_initial_position(); 
-
-    if (predicted_class == 1) { // METAL (Servo 1)
-        ESP_LOGI(TAG, "🔩 Servo 1: METAL. Movimiento 0° -> 180° -> 0°");
-
-// IDA: Mover de 0 a 180
+    if (predicted_class == 1) { // METAL
+        ESP_LOGI(TAG, "Metal🔩");
         set_servo_1_angle(180);
- 
-// VUELTA: Mover de 180 a 0
-        set_servo_1_angle(0);
-        vTaskDelay(MOVE_DELAY); // Espera en 0°
-    } else if (predicted_class == 2) { // PAPEL (Servo 1)
-        ESP_LOGI(TAG, "📃 Servo 1: PAPEL. Movimiento 0° -> 90° -> 0°"); // Movimiento más pequeño para diferenciar
-
-// IDA: Mover de 0 a 90
-        set_servo_1_angle(90);
-        vTaskDelay(MOVE_DELAY); 
-
-// VUELTA: Mover de 90 a 0
-        set_servo_1_angle(0);
-        vTaskDelay(MOVE_DELAY);
-    } 
-
-// Lógica para SERVO 2 (Plástico/Cartón)
-    else if (predicted_class == 3) { // PLÁSTICO (Servo 2)
-        ESP_LOGI(TAG, "🥤 Servo 2: PLÁSTICO. Movimiento 0° -> 180° -> 0°");
- 
-// IDA: Mover de 0 a 180
         set_servo_2_angle(180);
-        vTaskDelay(MOVE_DELAY); // Espera 1.0s en 180° 
-// VUELTA: Mover de 180 a 0
+        
+    } 
+    else if (predicted_class == 2) { // PAPEL
+        ESP_LOGI(TAG, "Papel📃");
+        set_servo_1_angle(180);
         set_servo_2_angle(0);
-        vTaskDelay(MOVE_DELAY); // Espera en 0°
-    } else if (predicted_class == 0) { // CARTÓN (Servo 2)
-        ESP_LOGI(TAG, "📦 Servo 2: CARTÓN. Movimiento 0° -> 90° -> 0°");
-
-// IDA: Mover de 0 a 90
-        set_servo_2_angle(90);
-        vTaskDelay(MOVE_DELAY); 
-
-// VUELTA: Mover de 90 a 0
+        
+    } 
+    else if (predicted_class == 3) { // PLÁSTICO
+        ESP_LOGI(TAG, "Plástico🥤");
+        set_servo_1_angle(0);
         set_servo_2_angle(0);
-        vTaskDelay(MOVE_DELAY);
-    } else {
-        ESP_LOGI(TAG, "Clase desconocida. Sin movimiento.");
-// No se necesita llamar a servos_to_initial_position, ya se hizo al inicio.
+        
+    } 
+    else if (predicted_class == 0) { // CARTÓN
+        ESP_LOGI(TAG, "Cartón📦");
+        set_servo_1_angle(0);
+        set_servo_2_angle(180); // Corregido el 1800 anterior
+        
     }
-    // NOTA: EL BUCLE PRINCIPAL YA NO NECESITA LLAMAR A vTaskDelay O servos_to_initial_position.
+    
+    vTaskDelay(MOVE_DELAY); // Esperamos una sola vez a que ambos lleguen
+    
 }
-
 // =========================================================
 //                   FUNCIONES ESP-NOW (Recepción)
 // =========================================================
@@ -228,6 +203,7 @@ void init_espnow_slave() {
 extern "C" void app_main(void) {
     // Inicialización del hardware de control
     ledc_init_servos(); 
+
     servos_to_initial_position();
 
     // Inicialización de la comunicación
@@ -244,13 +220,16 @@ extern "C" void app_main(void) {
             ESP_LOGI(TAG, "Clase recibida via ESP-NOW: %d", received_class);
             
             // 1. Mover los servos a la posición de descarte
+            ESP_LOGI(TAG, "Moviendo servos");
             move_servos_based_on_class(received_class);
             
+            ESP_LOGI(TAG, "Esperamos 2 segundos");
             // 2. Esperar un tiempo prudente para el descarte
-            //vTaskDelay(pdMS_TO_TICKS(1500)); 
+            vTaskDelay(pdMS_TO_TICKS(4000)); 
             
+            ESP_LOGI(TAG, "Volvemos a la posicion inicial");
             // 3. Volver a la posición inicial (reposo)
-            //servos_to_initial_position(); 
+            servos_to_initial_position(); 
         }
     }
 }
